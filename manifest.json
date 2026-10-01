@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "local.worldtimechum",
+  "name": "WorldTimeChum",
+  "version": "1.0.0",
+  "author": "esemczak",
+  "description": "Compare cities and find a meeting time on your desktop",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "barWidget": {"displayName": "WorldTimeChum", "description": "World clocks and meeting timeline", "category": "Time", "allowMultiple": false}
+}
