@@ -8,9 +8,13 @@ Install with `bash install.sh`. Cities are saved in the widget's `zones` setting
 
 The interface uses Omarchy's native controls, theme font, spacing, and colors. Working hours are subtly tinted and night hours dimmed. After updating an already installed copy, run `omarchy restart shell` if Quickshell retains cached components.
 
-City details sit in a fixed left column, beside vertically aligned time rows. A continuous background tint follows the current home hour and updates each minute. The independent border follows hover, then returns to the clicked selection (or home time if nothing has been selected). On other dates, the tint follows the same home wall-clock hour. Click to save a time for copying.
+City details sit in a fixed left column, beside vertically aligned time rows. A continuous background tint follows the current home hour and updates each minute. A border appears only when you click or drag to select a range, and stays on that range. Hover alone does not draw or move a border. On other dates, the tint follows the same home wall-clock hour.
 
-Time boxes show only hours and minutes. Clicking moves only the outline, leaving the current home-time tint in place. The Copy button copies each city's full selected date and time. Hover and the live home-time highlight do not change what will be copied.
+A small downward chevron above the timeline tracks the actual home time within the hour, updating each minute independently of selection.
+
+Time boxes show only hours and minutes. Click and drag in either direction to select a range, snapping to 30-minute intervals; a click selects one 30-minute interval. Each hourly box has two selectable halves. The outline marks the range while the current home-time tint stays in place. Hover shows local start and end dates/times. **Copy selected range** copies both endpoints for every city, respecting date changes, daylight saving, and 12h/24h notation. Hover does not change what will be copied.
+
+Drag either selection edge to resize the range without selecting it again. The small grips mark the handles; the pointer changes to a horizontal resize cursor near either edge. Resizing snaps to 30 minutes, keeps the opposite endpoint fixed, and preserves a minimum duration of 30 minutes.
 
 Use **24h / 12h** in the header to change notation for clocks, time boxes, tooltips, and copied times. The preference is saved with the widget settings. In 12-hour mode, AM/PM appears beneath each time.
 
@@ -23,5 +27,6 @@ Keyboard: Escape closes the popup. You can also run `omarchy-shell local.worldti
 Disable with `omarchy plugin disable local.worldtimechum`. Remove with `omarchy plugin remove local.worldtimechum --yes`.
 
 Run the timezone checks with `python3 -m unittest discover -s tests`.
+Run the drag-selection checks with `node --test tests/selection.test.cjs` (Node is only needed for these tests).
 
 Licensed under the [MIT License](LICENSE).

@@ -15,6 +15,7 @@ def snapshot(zones, day_offset=0, now=None):
     start = datetime(day.year, day.month, day.day, tzinfo=ZoneInfo(valid[0])).astimezone(timezone.utc)
     # Elapsed hours, rather than wall-clock arithmetic, keep DST gaps/repeats honest.
     hours = [start + timedelta(hours=i) for i in range(25)]
+    half_hours = [start + timedelta(minutes=30 * i) for i in range(51)]
     rows = []
     for name in valid:
         zone = ZoneInfo(name)
@@ -29,15 +30,26 @@ def snapshot(zones, day_offset=0, now=None):
                               epoch=int(instant.timestamp()), offset=t.strftime("%z")))
         rows.append(dict(zone=name, city=name.split("/")[-1].replace("_", " "),
                          time=local.strftime("%H:%M"), abbreviation=local.tzname(),
-                         date=local.strftime("%a %d %b"), cells=cells))
+                         date=local.strftime("%a %d %b"), cells=cells,
+                         boundaries=[dict(time=t.strftime("%H:%M"),
+                                          label=t.strftime("%a %d %b %Y, %H:%M %Z"),
+                                          epoch=int(instant.timestamp()))
+                                     for instant in half_hours
+                                     for t in [instant.astimezone(zone)]]))
     current_column = next((i for i, t in enumerate(hours[:-1])
                            if t <= now < t + timedelta(hours=1)), None)
     if current_column is None:
-        current_column = min(range(25), key=lambda i: abs(
-            (hours[i].astimezone(ZoneInfo(valid[0])).hour * 60
-             + hours[i].astimezone(ZoneInfo(valid[0])).minute)
-            - (home.hour * 60 + home.minute)))
+        current_column = min(range(25), key=lambda i: (
+            home.hour * 60 + home.minute
+            - hours[i].astimezone(ZoneInfo(valid[0])).hour * 60
+            - hours[i].astimezone(ZoneInfo(valid[0])).minute) % 1440)
+        anchor = hours[current_column].astimezone(ZoneInfo(valid[0]))
+        fraction = ((home.hour * 60 + home.minute - anchor.hour * 60 - anchor.minute) % 1440) / 60
+    else:
+        fraction = (now - hours[current_column]).total_seconds() / 3600
+    current_position = min(25, current_column + fraction)
     return dict(date=day.strftime("%A, %d %B %Y"), rows=rows, currentColumn=current_column,
+                currentPosition=current_position,
                 catalog=sorted(z for z in available_timezones() if "/" in z and not z.startswith(("posix/", "right/"))))
 
 

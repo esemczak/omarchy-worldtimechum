@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "Selection.js" as Selection
 
 Panel {
     id: root
@@ -14,9 +15,14 @@ Panel {
     property var snapshotData: ({rows: [], catalog: []})
     property int dayOffset: 0
     property int selected: -1
+    property int selectionEnd: -1
     property int hovered: -1
     readonly property int currentColumn: snapshotData.currentColumn || 0
-    readonly property int activeColumn: hovered >= 0 ? hovered : (selected >= 0 ? selected : currentColumn)
+    readonly property real currentPosition: snapshotData.currentPosition || 0
+    readonly property int activeSlot: hovered >= 0 ? hovered : (selected >= 0 ? selected : currentColumn * 2)
+    readonly property int activeColumn: Math.floor(activeSlot / 2)
+    readonly property int borderStart: selected >= 0 ? selected : activeSlot
+    readonly property int borderEnd: selected >= 0 ? selectionEnd : borderStart + 1
     property string error: ""
     property string copied: ""
     property var requestedZones: []
@@ -62,7 +68,9 @@ Panel {
     function step(delta) { dayOffset += delta; selected = -1; refresh() }
     function selectionText() {
         if (selected < 0) return ""
-        return snapshotData.rows.map(function(row) { return row.city + ": " + root.formattedLabel(row.cells[selected]) }).join("\n")
+        return snapshotData.rows.map(function(row) {
+            return row.city + ": " + root.formattedLabel(row.boundaries[selected]) + " – " + root.formattedLabel(row.boundaries[selectionEnd])
+        }).join("\n")
     }
     Process {
         id: worker
@@ -162,7 +170,7 @@ Panel {
                     }
                     Button {
                         focusable: true
-                        text: root.copied || "Copy selected time"
+                        text: root.copied || "Copy selected range"
                         enabled: root.selected >= 0
                         onClicked: {
                             clipboard.command = ["wl-copy", "--", root.selectionText()]
@@ -174,13 +182,15 @@ Panel {
                 Item {
                     id: comparison
                     width: body.width
-                    height: cityRows.implicitHeight
+                    height: markerHeight + cityRows.implicitHeight
+                    readonly property real markerHeight: Style.space(20)
                     readonly property real detailsWidth: Style.space(260)
                     readonly property real timelineWidth: width - detailsWidth
                     readonly property real pitch: timelineWidth / 25
                     readonly property real rowHeight: Style.space(66)
                     Column {
                         id: cityRows
+                        y: comparison.markerHeight
                         width: parent.width
                         spacing: Style.space(2)
                         Repeater {
@@ -225,9 +235,9 @@ Panel {
                                                 ChumText {
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     text: root.formatTime(modelData.time, false)
-                                                    opacity: root.activeColumn === index || root.selected === index || modelData.awake ? 1 : 0.4
+                                                    opacity: root.activeColumn === index || (root.selected >= 0 && index * 2 < root.selectionEnd && index * 2 + 2 > root.selected) || modelData.awake ? 1 : 0.4
                                                     font.pixelSize: Style.font.caption
-                                                    font.bold: root.activeColumn === index || root.selected === index
+                                                    font.bold: root.activeColumn === index || (root.selected >= 0 && index * 2 < root.selectionEnd && index * 2 + 2 > root.selected)
                                                 }
                                                 ChumText {
                                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -243,47 +253,101 @@ Panel {
                             }
                         }
                     }
+                    ChumText {
+                        x: comparison.detailsWidth + root.currentPosition * comparison.pitch - width / 2
+                        y: 0
+                        width: Style.space(18)
+                        height: comparison.markerHeight
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        text: "󰅀"
+                        color: Color.accent
+                        font.pixelSize: Style.font.icon
+                        visible: root.snapshotData.rows.length > 0
+                    }
                     // Current time owns the fill; hover/copy selection owns
                     // the independent outline.
                     Rectangle {
                         x: comparison.detailsWidth + root.currentColumn * comparison.pitch
+                        y: comparison.markerHeight
                         width: comparison.pitch - Style.space(2)
-                        height: comparison.height
+                        height: cityRows.implicitHeight
                         radius: Style.cornerRadius
                         color: Util.alpha(Color.accent, 0.14)
                         visible: root.snapshotData.rows.length > 0
                     }
                     Rectangle {
-                        x: comparison.detailsWidth + root.activeColumn * comparison.pitch
-                        width: comparison.pitch - Style.space(2)
-                        height: comparison.height
+                        x: comparison.detailsWidth + root.borderStart * comparison.pitch / 2
+                        y: comparison.markerHeight
+                        width: (root.borderEnd - root.borderStart) * comparison.pitch / 2 - Style.space(2)
+                        height: cityRows.implicitHeight
                         radius: Style.cornerRadius
                         color: "transparent"
                         border.color: Color.accent
                         border.width: Math.max(1, Style.spacing.hairline)
-                        visible: root.snapshotData.rows.length > 0
+                        visible: root.selected >= 0 && root.snapshotData.rows.length > 0
                     }
                     MouseArea {
                         id: timelinePointer
                         x: comparison.detailsWidth
+                        y: comparison.markerHeight
                         width: comparison.timelineWidth
-                        height: comparison.height
+                        height: cityRows.implicitHeight
                         hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
+                        preventStealing: true
+                        acceptedButtons: Qt.LeftButton
+                        property int dragAnchor: -1
+                        property string dragMode: ""
+                        property int originalStart: -1
+                        property int originalEnd: -1
+                        function edgeAt(x) { return Selection.edgeAt(x, comparison.pitch, root.selected, root.selectionEnd, Math.min(Style.space(8), comparison.pitch / 5)) }
+                        cursorShape: dragMode === "start" || dragMode === "end" || edgeAt(mouseX) !== "" ? Qt.SizeHorCursor : Qt.PointingHandCursor
                         readonly property int hoveredRow: Math.max(0, Math.min(root.snapshotData.rows.length - 1, Math.floor(mouseY / (comparison.rowHeight + Style.space(2)))))
-                        function updateColumn(x) { root.hovered = Math.max(0, Math.min(24, Math.floor(x / comparison.pitch))) }
-                        onPositionChanged: function(mouse) { updateColumn(mouse.x) }
+                        function updateColumn(x) { root.hovered = Selection.slotAt(x, comparison.pitch) }
+                        function updateRange(x) {
+                            var range = dragMode === "start" || dragMode === "end"
+                                ? Selection.resizeRange(originalStart, originalEnd, dragMode, Selection.boundaryAt(x, comparison.pitch))
+                                : Selection.rangeFrom(dragAnchor, Selection.slotAt(x, comparison.pitch))
+                            root.selected = range.start
+                            root.selectionEnd = range.end
+                            root.copied = ""
+                        }
+                        onPressed: function(mouse) {
+                            dragMode = edgeAt(mouse.x)
+                            originalStart = root.selected
+                            originalEnd = root.selectionEnd
+                            dragAnchor = Selection.slotAt(mouse.x, comparison.pitch)
+                            updateRange(mouse.x)
+                        }
+                        onPositionChanged: function(mouse) { updateColumn(mouse.x); if (pressed) updateRange(mouse.x) }
                         onEntered: updateColumn(mouseX)
                         onExited: root.hovered = -1
-                        onClicked: { root.selected = root.activeColumn; root.copied = "" }
+                        onReleased: function(mouse) { updateRange(mouse.x); root.hovered = -1; dragAnchor = -1; dragMode = "" }
+                        onCanceled: { root.hovered = -1; dragAnchor = -1; dragMode = "" }
                         PanelToolTip {
                             visible: timelinePointer.containsMouse && root.snapshotData.rows.length > 0
-                            text: root.snapshotData.rows.length > 0 ? root.formattedLabel(root.snapshotData.rows[timelinePointer.hoveredRow].cells[root.activeColumn]) : ""
+                            text: {
+                                if (root.snapshotData.rows.length === 0) return ""
+                                var row = root.snapshotData.rows[timelinePointer.hoveredRow]
+                                return root.formattedLabel(row.boundaries[root.borderStart]) + " – " + root.formattedLabel(row.boundaries[root.borderEnd])
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: root.selected >= 0 ? [root.selected, root.selectionEnd] : []
+                        Rectangle {
+                            required property int modelData
+                            x: comparison.detailsWidth + modelData * comparison.pitch / 2 - width / 2 - (modelData === root.selectionEnd ? Style.space(2) : 0)
+                            y: comparison.markerHeight + (cityRows.implicitHeight - height) / 2
+                            width: Style.space(5)
+                            height: Style.space(20)
+                            radius: Style.cornerRadius
+                            color: Color.accent
                         }
                     }
                 }
                 Rectangle { width: body.width; height: Style.spacing.hairline; color: Color.foreground; opacity: 0.12 }
-                ChumText { text: "Column tint: current home time   ·   Border: selected time   ·   Dimmed: night   ·   Hover to compare"; opacity: 0.5; font.pixelSize: Style.font.caption }
+                ChumText { text: "Column tint: current home time   ·   Drag to select; drag either edge to resize   ·   30-minute steps"; opacity: 0.5; font.pixelSize: Style.font.caption }
             }
         }
     }
