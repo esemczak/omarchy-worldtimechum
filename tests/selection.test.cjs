@@ -6,6 +6,15 @@ const selection = {};
 vm.createContext(selection);
 vm.runInContext(fs.readFileSync(require('node:path').join(__dirname, '../Selection.js'), 'utf8'), selection);
 
+test('duration labels use compact hours and minutes and hide empty ranges', () => {
+    assert.equal(selection.durationLabel(-1, -1), '');
+    assert.equal(selection.durationLabel(10, 10), '');
+    assert.equal(selection.durationLabel(10, 11), '30m');
+    assert.equal(selection.durationLabel(10, 13), '1h 30m');
+    assert.equal(selection.durationLabel(10, 20), '5h');
+    assert.equal(selection.durationLabel(0, 50), '25h');
+});
+
 test('snaps pointer to half-hour slots and clamps outside the timeline', () => {
     assert.equal(selection.slotAt(0, 60), 0);
     assert.equal(selection.slotAt(29.9, 60), 0);

@@ -1,4 +1,12 @@
 // Half-hour slots are inclusive under the pointer; the range end is exclusive.
+function durationLabel(start, end) {
+    if (start < 0 || end <= start) return "";
+    var minutes = (end - start) * 30;
+    var hours = Math.floor(minutes / 60);
+    var remainder = minutes % 60;
+    return (hours ? hours + "h" : "") + (hours && remainder ? " " : "") + (remainder ? remainder + "m" : "");
+}
+
 function slotAt(x, hourWidth) {
     return Math.max(0, Math.min(49, Math.floor(x / (hourWidth / 2))));
 }

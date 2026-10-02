@@ -45,8 +45,10 @@ Panel {
         if (bar && bar.shell) bar.shell.updateEntryInline(moduleName, entry)
         copied = ""
     }
-    function open() { refresh(); controller.show() }
-    function close() { hovered = -1; controller.hide() }
+    function clearSelection() { selected = -1; selectionEnd = -1; copied = ""; copyTimer.stop() }
+    onOpenedChanged: if (!opened) clearSelection()
+    function open() { clearSelection(); refresh(); controller.show() }
+    function close() { hovered = -1; clearSelection(); controller.hide() }
     function toggle() { if (opened) close(); else open() }
     function refresh() {
         if (worker.running) return
@@ -115,6 +117,18 @@ Panel {
             focus: true
             Keys.onEscapePressed: root.close()
             boundsBehavior: Flickable.StopAtBounds
+            PointHandler {
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                onActiveChanged: {
+                    if (!active || root.selected < 0) return
+                    var copyPoint = copyButton.mapFromItem(content, point.position.x, point.position.y)
+                    if (copyButton.contains(copyPoint)) return
+                    var badgePoint = durationBadge.mapFromItem(content, point.position.x, point.position.y)
+                    if (durationBadge.visible && durationBadge.contains(badgePoint)) return
+                    var timelinePoint = timelinePointer.mapFromItem(content, point.position.x, point.position.y)
+                    if (!timelinePointer.contains(timelinePoint)) root.clearSelection()
+                }
+            }
             Column {
                 id: body
                 width: Math.max(content.width, 780)
@@ -169,6 +183,7 @@ Panel {
                         }
                     }
                     Button {
+                        id: copyButton
                         focusable: true
                         text: root.copied || "Copy selected range"
                         enabled: root.selected >= 0
@@ -188,6 +203,7 @@ Panel {
                     readonly property real timelineWidth: width - detailsWidth
                     readonly property real pitch: timelineWidth / 25
                     readonly property real rowHeight: Style.space(66)
+                    property int badgeRow: 0
                     Column {
                         id: cityRows
                         y: comparison.markerHeight
@@ -201,6 +217,9 @@ Panel {
                                 required property int index
                                 width: comparison.width
                                 height: comparison.rowHeight
+                                HoverHandler {
+                                    onHoveredChanged: if (hovered) comparison.badgeRow = cityRow.index
+                                }
                                 Column {
                                     anchors.left: parent.left
                                     anchors.verticalCenter: parent.verticalCenter
@@ -265,6 +284,32 @@ Panel {
                         font.pixelSize: Style.font.icon
                         visible: root.snapshotData.rows.length > 0
                     }
+                    Rectangle {
+                        id: durationBadge
+                        readonly property real rangeCenter: comparison.detailsWidth + (root.selected + root.selectionEnd) * comparison.pitch / 4 - Style.space(1)
+                        x: rangeCenter - width / 2
+                        y: comparison.markerHeight + (cityRows.implicitHeight - height) / 2
+                        z: 1
+                        width: Math.max(1, Math.min(durationText.implicitWidth + Style.space(16), (root.selectionEnd - root.selected) * comparison.pitch / 2 - Style.space(6)))
+                        height: Style.space(28)
+                        radius: Style.cornerRadius
+                        color: Color.accent
+                        visible: root.selected >= 0 && root.snapshotData.rows.length > 0
+                        ChumText {
+                            id: durationText
+                            anchors.centerIn: parent
+                            width: Math.max(1, parent.width - Style.space(6))
+                            height: parent.height - Style.space(6)
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            fontSizeMode: Text.Fit
+                            minimumPixelSize: 6
+                            text: Selection.durationLabel(root.selected, root.selectionEnd)
+                            color: Color.popups.background
+                            font.pixelSize: Style.font.bodySmall
+                            font.bold: true
+                        }
+                    }
                     // Current time owns the fill; hover/copy selection owns
                     // the independent outline.
                     Rectangle {
@@ -300,6 +345,9 @@ Panel {
                         property string dragMode: ""
                         property int originalStart: -1
                         property int originalEnd: -1
+                        property bool dismissOnClick: false
+                        property real pressX: 0
+                        property real pressY: 0
                         function edgeAt(x) { return Selection.edgeAt(x, comparison.pitch, root.selected, root.selectionEnd, Math.min(Style.space(8), comparison.pitch / 5)) }
                         cursorShape: dragMode === "start" || dragMode === "end" || edgeAt(mouseX) !== "" ? Qt.SizeHorCursor : Qt.PointingHandCursor
                         readonly property int hoveredRow: Math.max(0, Math.min(root.snapshotData.rows.length - 1, Math.floor(mouseY / (comparison.rowHeight + Style.space(2)))))
@@ -317,15 +365,23 @@ Panel {
                             originalStart = root.selected
                             originalEnd = root.selectionEnd
                             dragAnchor = Selection.slotAt(mouse.x, comparison.pitch)
-                            updateRange(mouse.x)
+                            pressX = mouse.x
+                            pressY = mouse.y
+                            dismissOnClick = root.selected >= 0 && dragMode === "" && (dragAnchor < root.selected || dragAnchor >= root.selectionEnd)
+                            if (!dismissOnClick) updateRange(mouse.x)
                         }
-                        onPositionChanged: function(mouse) { updateColumn(mouse.x); if (pressed) updateRange(mouse.x) }
+                        onPositionChanged: function(mouse) {
+                            updateColumn(mouse.x)
+                            if (!pressed) return
+                            if (dismissOnClick && Math.max(Math.abs(mouse.x - pressX), Math.abs(mouse.y - pressY)) >= Qt.styleHints.startDragDistance) dismissOnClick = false
+                            if (!dismissOnClick) updateRange(mouse.x)
+                        }
                         onEntered: updateColumn(mouseX)
                         onExited: root.hovered = -1
-                        onReleased: function(mouse) { updateRange(mouse.x); root.hovered = -1; dragAnchor = -1; dragMode = "" }
+                        onReleased: function(mouse) { if (dismissOnClick) root.clearSelection(); else updateRange(mouse.x); root.hovered = -1; dragAnchor = -1; dragMode = ""; dismissOnClick = false }
                         onCanceled: { root.hovered = -1; dragAnchor = -1; dragMode = "" }
                         PanelToolTip {
-                            visible: timelinePointer.containsMouse && root.snapshotData.rows.length > 0
+                            visible: root.selected < 0 && timelinePointer.containsMouse && root.snapshotData.rows.length > 0
                             text: {
                                 if (root.snapshotData.rows.length === 0) return ""
                                 var row = root.snapshotData.rows[timelinePointer.hoveredRow]
@@ -343,6 +399,30 @@ Panel {
                             height: Style.space(20)
                             radius: Style.cornerRadius
                             color: Color.accent
+                        }
+                    }
+                    Repeater {
+                        model: root.selected >= 0 && root.snapshotData.rows.length > 0 ? ["start", "end"] : []
+                        Rectangle {
+                            required property string modelData
+                            readonly property bool isStart: modelData === "start"
+                            readonly property real edgeX: comparison.detailsWidth + (isStart ? root.selected : root.selectionEnd) * comparison.pitch / 2 - (isStart ? 0 : Style.space(2))
+                            readonly property var cityData: root.snapshotData.rows[Math.min(comparison.badgeRow, root.snapshotData.rows.length - 1)]
+                            x: Math.max(0, Math.min(comparison.width - width, isStart ? edgeX - width - Style.space(10) : edgeX + Style.space(10)))
+                            y: comparison.markerHeight + (cityRows.implicitHeight - height) / 2
+                            z: 2
+                            width: endpointText.implicitWidth + Style.space(16)
+                            height: Style.space(28)
+                            radius: Style.cornerRadius
+                            color: Color.accent
+                            ChumText {
+                                id: endpointText
+                                anchors.centerIn: parent
+                                text: parent.cityData ? root.formatTime(parent.cityData.boundaries[parent.isStart ? root.selected : root.selectionEnd].time) : ""
+                                color: Color.popups.background
+                                font.pixelSize: Style.font.bodySmall
+                                font.bold: true
+                            }
                         }
                     }
                 }
