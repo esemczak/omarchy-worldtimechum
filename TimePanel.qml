@@ -351,6 +351,7 @@ Panel {
                         function edgeAt(x) { return Selection.edgeAt(x, comparison.pitch, root.selected, root.selectionEnd, Math.min(Style.space(8), comparison.pitch / 5)) }
                         cursorShape: dragMode === "start" || dragMode === "end" || edgeAt(mouseX) !== "" ? Qt.SizeHorCursor : Qt.PointingHandCursor
                         readonly property int hoveredRow: Math.max(0, Math.min(root.snapshotData.rows.length - 1, Math.floor(mouseY / (comparison.rowHeight + Style.space(2)))))
+                        onHoveredRowChanged: if (containsMouse || pressed) comparison.badgeRow = hoveredRow
                         function updateColumn(x) { root.hovered = Selection.slotAt(x, comparison.pitch) }
                         function updateRange(x) {
                             var range = dragMode === "start" || dragMode === "end"
@@ -361,6 +362,7 @@ Panel {
                             root.copied = ""
                         }
                         onPressed: function(mouse) {
+                            comparison.badgeRow = hoveredRow
                             dragMode = edgeAt(mouse.x)
                             originalStart = root.selected
                             originalEnd = root.selectionEnd
@@ -371,12 +373,13 @@ Panel {
                             if (!dismissOnClick) updateRange(mouse.x)
                         }
                         onPositionChanged: function(mouse) {
+                            comparison.badgeRow = hoveredRow
                             updateColumn(mouse.x)
                             if (!pressed) return
                             if (dismissOnClick && Math.max(Math.abs(mouse.x - pressX), Math.abs(mouse.y - pressY)) >= Qt.styleHints.startDragDistance) dismissOnClick = false
                             if (!dismissOnClick) updateRange(mouse.x)
                         }
-                        onEntered: updateColumn(mouseX)
+                        onEntered: { comparison.badgeRow = hoveredRow; updateColumn(mouseX) }
                         onExited: root.hovered = -1
                         onReleased: function(mouse) { if (dismissOnClick) root.clearSelection(); else updateRange(mouse.x); root.hovered = -1; dragAnchor = -1; dragMode = ""; dismissOnClick = false }
                         onCanceled: { root.hovered = -1; dragAnchor = -1; dragMode = "" }
